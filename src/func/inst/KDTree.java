@@ -152,7 +152,7 @@ public class KDTree implements Serializable {
     /**
     * Use quickSelect and medianOfMedians to select a item
     * guarenteed to be in the middle 50% of the data. Along the chosen dimension
-    * This function perpares the data to be processed by the quickSelect function
+    * This function prepares the data to be processed by the quickSelect function
     * It selects dimensions in order, so that each level of the final KDTree
     * splits on a different dimension
     * @param nodes the nodes to choose from
