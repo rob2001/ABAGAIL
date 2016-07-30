@@ -1,13 +1,14 @@
 package func;
 
-import shared.DataSet;
-import shared.DistanceMeasure;
-import shared.EuclideanDistance;
-import shared.Instance;
+import shared.*;
 import util.linalg.DenseVector;
 import dist.*;
 import dist.Distribution;
 import dist.DiscreteDistribution;
+import java.util.ArrayList;
+
+import java.util.concurrent.Callable;
+import java.util.concurrent.ForkJoinTask;
 
 /**
  * A K means clusterer
@@ -15,6 +16,10 @@ import dist.DiscreteDistribution;
  * @version 1.0
  */
 public class KMeansClusterer extends AbstractConditionalDistribution implements FunctionApproximater {
+    /**
+     * Instances per thread
+     */
+    private int INSTANCES_PER_THREAD = 1000;
     /**
      * The cluster centers
      */
@@ -77,6 +82,43 @@ public class KMeansClusterer extends AbstractConditionalDistribution implements 
         return new DiscreteDistribution(distribution);
     }
 
+    private class ClusterTask implements Callable<Void> {
+        private Instance[] clusterCenters;
+        private int[] assignments;
+        private DataSet set;
+        private int start;
+        private int end;
+        private Boolean changed;
+        public ClusterTask(Instance[] clusterCenters, int[] assignments, DataSet set, int start, int end, Boolean changed){
+            this.clusterCenters = clusterCenters;
+            this.assignments = assignments;
+            this.set = set;
+            this.start = start;
+            this.end = end;
+            this.changed = changed;
+        }
+        public Void call() {
+            for (int i = start; i < end; i++) {
+                int closest = 0;
+                double closestDistance = distanceMeasure
+                        .value(set.get(i), clusterCenters[0]);
+                for (int j = 1; j < k; j++) {
+                    double distance = distanceMeasure
+                            .value(set.get(i), clusterCenters[j]);
+                    if (distance < closestDistance) {
+                        closestDistance = distance;
+                        closest = j;
+                    }
+                }
+                if (assignments[i] != closest) {
+                    changed = true;
+                }
+                assignments[i] = closest;
+            }
+            return null;
+        }
+    }
+
     /**
      * @see func.FunctionApproximater#estimate(shared.DataSet)
      */
@@ -92,29 +134,44 @@ public class KMeansClusterer extends AbstractConditionalDistribution implements 
             assignments[pick] = 1;
             clusterCenters[i] = (Instance) set.get(pick).copy();
         }
-        boolean changed = false;
+        Boolean changed = false;
         // the main loop
         do {
             changed = false;
             // make the assignments
-            for (int i = 0; i < set.size(); i++) {
-                // find the closest center
-                int closest = 0;
-                double closestDistance = distanceMeasure
-                    .value(set.get(i), clusterCenters[0]);
-                for (int j = 1; j < k; j++) {
-                    double distance = distanceMeasure
-                        .value(set.get(i), clusterCenters[j]);
-                    if (distance < closestDistance) {
-                        closestDistance = distance;
-                        closest = j;
-                    }
-                }
-                if (assignments[i] != closest) {
-                    changed = true;
-                }
-                assignments[i] = closest;
+            int parallelism = ConcurrencyConfiguration.getFJP().getParallelism();
+            int instances_per_thread = set.size() / parallelism;
+            ArrayList<ForkJoinTask> tasks = new ArrayList<>();
+            for (int i = 0; i < set.size(); i += instances_per_thread){
+                int end = set.size() - (i+instances_per_thread) < instances_per_thread ? set.size() : i + instances_per_thread;
+                ClusterTask task = new ClusterTask(clusterCenters, assignments, set, i, end,changed);
+                tasks.add(ConcurrencyConfiguration.getFJP().submit(task));
             }
+            for (ForkJoinTask task : tasks){
+                if (task != null){
+                    task.join();
+                }
+            }
+
+
+//            for (int i = 0; i < set.size(); i++) {
+//                // find the closest center
+//                int closest = 0;
+//                double closestDistance = distanceMeasure
+//                    .value(set.get(i), clusterCenters[0]);
+//                for (int j = 1; j < k; j++) {
+//                    double distance = distanceMeasure
+//                        .value(set.get(i), clusterCenters[j]);
+//                    if (distance < closestDistance) {
+//                        closestDistance = distance;
+//                        closest = j;
+//                    }
+//                }
+//                if (assignments[i] != closest) {
+//                    changed = true;
+//                }
+//                assignments[i] = closest;
+//            }
             if (changed) {
                 double[] assignmentCount = new double[k];
                 // make the new clusters

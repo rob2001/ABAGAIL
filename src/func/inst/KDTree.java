@@ -3,6 +3,8 @@ import java.io.Serializable;
 
 import java.util.Arrays;
 import java.util.Random;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RecursiveTask;
 
 import shared.*;
 import shared.DataSet;
@@ -56,11 +58,55 @@ public class KDTree implements Serializable {
      * Build a kd tree from the given parallel arrays
      * of keys and data
      * @param keys the array of keys
-     * @param data the array of data
-     * @param distance the distance measure
      */
     public KDTree(DataSet keys) {
         this(keys, new EuclideanDistance());
+    }
+
+    /**
+     * Private inner class for parallel tree building
+     * @author Robert Smith
+     */
+    private class BuildFork extends RecursiveTask<KDTreeNode> {
+        final KDTree tree;
+        final KDTreeNode[] nodes;
+        final int start;
+        final int end;
+        final int depth;
+
+        BuildFork(KDTree tree, KDTreeNode[] nodes, int start, int end, int depth) {
+            this.tree = tree;
+            this.nodes = nodes;
+            this.start = start;
+            this.end = end;
+            this.depth = depth;
+        }
+        protected KDTreeNode compute() {
+            //System.out.println(Thread.currentThread().getName());
+            //return tree.buildTree(nodes,start,end,depth);
+            //figure out a better solution
+            if (start >= end) {
+                // if we're done return null
+                return null;
+            } else if (start + 1 == end) {
+                // or the last element
+                return nodes[start];
+            }
+            // choose splitter
+            int splitterIndex = chooseApproxBestSplitter(nodes, start, end,depth);
+            KDTreeNode splitter = nodes[splitterIndex];
+            //  partition based on splitter
+            splitterIndex = partition(nodes, start, end, splitterIndex);
+            // recursively build tree
+            //splitter.setLeft(buildTree(nodes, start, splitterIndex, depth+1));
+            //splitter.setRight(buildTree(nodes, splitterIndex + 1, end, depth+1));
+            BuildFork lfork = new BuildFork(tree,nodes,start,splitterIndex,depth+1);
+            BuildFork rfork = new BuildFork(tree,nodes,splitterIndex+1,end,depth+1);
+            this.invokeAll(lfork,rfork);
+            splitter.setLeft(lfork.join());
+            splitter.setRight(rfork.join());
+            return splitter;
+        }
     }
 
     /**
@@ -71,7 +117,11 @@ public class KDTree implements Serializable {
      * @return the head node of the build tree
      */
     private KDTreeNode buildTree(KDTreeNode[] nodes, int start, int end) {
-        return buildTree(nodes, start, end, 0);
+        BuildFork forkTask = new BuildFork(this,nodes,start,end,0);
+        ForkJoinPool fjp = new ForkJoinPool();
+
+        return fjp.invoke(forkTask);
+        //return buildTree(nodes, start, end, 0);
     }
 
     /**

@@ -8,6 +8,7 @@ import java.util.Scanner;
 import dist.Distribution;
 import dist.MultivariateGaussian;
 import func.KMeansClusterer;
+import shared.ConcurrencyConfiguration;
 import shared.DataSet;
 import shared.Instance;
 import util.linalg.DenseVector;
@@ -29,21 +30,24 @@ public class KMeansClustererTest implements Runnable {
         this.num_attr = num_attr;
         this.file_name = file;
     }
-    
-    public static void main(String[] args) {
-        KMeansClustererTest test = new KMeansClustererTest(4601,57,"src/opt/test/spam.txt.csv");
-        test.run();
-    }
-    
+
     /**
      * The test main
      * @param args ignored
      */
+    public static void main(String[] args) {
+        System.out.println(ConcurrencyConfiguration.getFJP().getParallelism());
+        KMeansClustererTest test = new KMeansClustererTest(4601,57,"src/opt/test/spam.txt.csv");
+        test.run();
+    }
+
     public void run() {
         Instance[] instances = initializeInstances();
         DataSet set = new DataSet(instances);
         KMeansClusterer km = new KMeansClusterer();
+        long buildTime = System.nanoTime();
         km.estimate(set);
+        System.out.println("time: "+(System.nanoTime()-buildTime));
         System.out.println(km);
     }
     
